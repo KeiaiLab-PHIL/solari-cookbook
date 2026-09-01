@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict"
 import { HTTP_NOT_FOUND, HTTP_SERVER_ERROR } from "../src/constants.js"
-import { checkLinks, click, navigate, snapshot, Submit, typeText } from "../src/page.js"
+import { checkLinks, click, navigate, renderSnapshot, snapshot, Submit, typeText } from "../src/page.js"
 import { checker, DEMO_BASE, openLocalBrowser, startDemoApp } from "./harness.js"
 
 const { ok, count } = checker()
@@ -41,6 +41,23 @@ try {
 
     await navigate(page, `${DEMO_BASE}/settings`)
     ok((await collector.drain()).some((s) => s.kind === "page.error"), "B6: the settings page raises a page.error signal")
+
+    // The two blind spots that made the intern file three false positives
+    // against a real app: a confirm-guarded button, and a `required` field.
+    await page.setContent(`
+      <form action="/gone" method="post"><input type="submit" value="Delete"
+        onclick="return confirm('Are you sure?')"></form>
+      <form action="/save" method="post"><input name="title" required>
+        <input type="submit" value="Save"></form>`)
+    const fixture = await snapshot(page)
+    const deleteBtn = fixture.elements.find((e) => e.value === "Delete")
+    const titleField = fixture.elements.find((e) => e.placeholder === undefined && e.tag === "input" && e.type === "text")
+    assert.ok(deleteBtn && titleField, "fixture rendered")
+    ok(Boolean(titleField.invalid), `an empty required field reports why it blocks submit (${titleField.invalid})`)
+    ok(renderSnapshot(fixture).includes("blocks submit:"), "the rendered state tells the model the field blocks submit")
+
+    await click(page, deleteBtn.ref)
+    ok((await collector.drain()).some((s) => s.kind === "dialog" && s.detail.includes("accepted")), "a confirm dialog is accepted and recorded, not silently dismissed")
 
     console.log(`offline smoke: ok (${count()} checks)`)
   } finally {

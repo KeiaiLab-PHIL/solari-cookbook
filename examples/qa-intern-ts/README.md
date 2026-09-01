@@ -158,6 +158,45 @@ It also reports defects nobody planted, and they are real: `/nonexistent`
 returns raw JSON instead of a page, a long note title overflows its delete
 button, and the count reads "1 notes". The saved run has the first two.
 
+### Pointed at code we did not write
+
+A planted-bug app graded by its own author proves little, so the intern was
+run against [Flaskr](https://github.com/pallets/flask/tree/main/examples/tutorial),
+the Flask project's own tutorial blog — real third-party code with nothing
+planted in it:
+
+```bash
+npm start -- --repo https://github.com/pallets/flask --path examples/tutorial \
+  --setup "pip3 install --break-system-packages -q -e . && flask --app flaskr init-db" \
+  --start "flask --app flaskr run --host 0.0.0.0 --port 3000" --port 3000
+```
+
+It reported three defects. **All three were wrong**, and finding out why was
+worth more than a lucky bug would have been.
+
+| reported | truth | cause |
+|---|---|---|
+| "Delete button does nothing" | delete works | `onclick="return confirm(...)"`. Playwright **dismisses** dialogs when nothing handles them, so the handler returned false and the form never submitted |
+| "Empty title is silently ignored" | the browser rejected it | `<input required>` blocks submission natively, and native validation leaves no trace in the DOM |
+| "Long body is not saved" | it saves | same `required` field, still empty from the previous step |
+
+Two of the three were the tool's fault, not the model's, and both are fixed:
+dialogs are now accepted and recorded as a signal, and a field that fails
+constraint validation is rendered as `(blocks submit: Please fill out this
+field.)` in the page state. `npm run test:offline` pins both.
+
+[`runs/live-flaskr/`](runs/live-flaskr) is the run *after* those fixes. The two
+validation false positives are gone. One remains — "Delete post does not
+remove post after confirmation" — and it is still wrong: driving the same flow
+through the same page driver against a local Flaskr shows the dialog accepted,
+the redirect taken, and the post gone. That one is the model's error, and no
+collector can catch it.
+
+So: three false positives, two of them mine, on the first contact with code
+the author did not write. That is the honest number, and it is why the tools
+put deterministic evidence next to every claim — a reviewer needs to be able
+to check.
+
 ## Solari, as measured
 
 - Sandbox boot → clone → app serving on a public URL: **3 s**. Browser session

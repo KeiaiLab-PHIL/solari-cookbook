@@ -11,7 +11,7 @@ import { HTTP_BAD_REQUEST } from "./constants.js"
  * off, and without it those events never arrive. Network signals come from
  * the Network domain and are unaffected.
  */
-export type SignalKind = "console.error" | "page.error" | "request.failed" | "http.error"
+export type SignalKind = "console.error" | "page.error" | "request.failed" | "http.error" | "dialog"
 
 export interface Signal {
   kind: SignalKind
@@ -58,6 +58,16 @@ export class Collector {
   async attach(page: Page): Promise<void> {
     this.page = page
     await page.addInitScript(INIT_SCRIPT)
+
+    // Playwright DISMISSES dialogs when nothing handles them, which makes every
+    // `onclick="return confirm(...)"` button look broken: the handler returns
+    // false and the form never submits. An intern that clicked Delete meant to
+    // delete, so accept - and record it, because "a confirm appeared" is itself
+    // something the report should say.
+    page.on("dialog", (dialog) => {
+      this.push("dialog", `${dialog.type()}: ${dialog.message()} - accepted`, page.url())
+      void dialog.accept().catch(() => undefined)
+    })
 
     page.on("requestfailed", (req) => {
       this.push("request.failed", `${req.method()} ${req.url()} — ${req.failure()?.errorText ?? "failed"}`, page.url())

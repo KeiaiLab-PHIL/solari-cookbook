@@ -116,7 +116,15 @@ Running it for real is what found the defects worth fixing, in this order:
    guest, the gateway gets its own short check with a message that names the
    likely cause, and the process releases its VMs on SIGTERM and SIGHUP too
    (a dropped pipe was what leaked the sandbox).
-8. The preview token kept ending up in committed reports — in a table cell,
+8. Pointed at a real app for the first time, it filed three defects that did
+   not exist. Two were blind spots in the driver, not the model: Playwright
+   dismisses dialogs unless something handles them, so every
+   `onclick="return confirm(...)"` button reads as broken; and native
+   constraint validation blocks a submit while leaving the DOM untouched, so a
+   `required` field reads as a form that silently ignores you. Dialogs are now
+   accepted and recorded as a signal, and an invalid field renders its own
+   validation message into the page state.
+9. The preview token kept ending up in committed reports — in a table cell,
    then in the model's own prose. Redaction now runs once over the finished
    document instead of field by field.
 

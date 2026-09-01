@@ -30,6 +30,8 @@ export interface UiElement {
   value?: string
   placeholder?: string
   disabled?: boolean
+  /** The browser's own validation message when the field blocks submission. */
+  invalid?: string
 }
 
 export interface Snapshot {
@@ -82,7 +84,15 @@ export async function snapshot(page: Page): Promise<Snapshot> {
  * does not exist in the page.
  */
 function collectState(args: { selector: string; refAttr: string; maxElements: number; labelCap: number; textCap: number }) {
-  type Widget = HTMLElement & { value?: string; placeholder?: string; type?: string; disabled?: boolean; alt?: string }
+  type Widget = HTMLElement & {
+    value?: string
+    placeholder?: string
+    type?: string
+    disabled?: boolean
+    alt?: string
+    validity?: ValidityState
+    validationMessage?: string
+  }
 
   for (const stale of document.querySelectorAll(`[${args.refAttr}]`)) {
     stale.removeAttribute(args.refAttr)
@@ -116,6 +126,8 @@ function collectState(args: { selector: string; refAttr: string; maxElements: nu
       value: isField ? w.value : undefined,
       placeholder: isField ? w.placeholder || undefined : undefined,
       disabled: w.disabled || undefined,
+      // `validity` is read-only - unlike checkValidity(), reading it fires no event.
+      invalid: w.validity && !w.validity.valid ? w.validationMessage || "invalid" : undefined,
     })
   }
 
@@ -141,6 +153,9 @@ export function renderSnapshot(s: Snapshot): string {
     }
     if (e.disabled) {
       bits.push("(disabled)")
+    }
+    if (e.invalid) {
+      bits.push(`(blocks submit: ${e.invalid})`)
     }
     return bits.join(" ")
   })
