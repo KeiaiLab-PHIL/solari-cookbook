@@ -36,3 +36,15 @@ async function probe(url: string): Promise<number> {
     return 0
   }
 }
+
+/**
+ * Solari hands out preview URLs with a ~400-character access token in the
+ * query string. Visiting one sets a cookie, after which the token is
+ * unnecessary — so strip it before anything else sees the URL. It was in the
+ * intern's prompt once, and the model retyped it a character short.
+ */
+export function withoutPreviewToken(url: string): string {
+  const parsed = new URL(url)
+  parsed.searchParams.delete("pt_token")
+  return parsed.toString().replace(/\?$/, "")
+}

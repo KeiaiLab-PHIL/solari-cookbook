@@ -2,3 +2,6 @@ runs/*
 !runs/sample/
 !runs/live-nvidia/
 !runs/live-flaskr/
+!runs/live-fastui/
+# frames are the raw material for session.mp4
+runs/*/frames/

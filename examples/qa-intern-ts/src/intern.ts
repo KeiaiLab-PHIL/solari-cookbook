@@ -5,7 +5,8 @@ import { z } from "zod"
 import { runClaude } from "./brain-claude.js"
 import { nvidiaCanSeeImages, runNvidia } from "./brain-nvidia.js"
 import type { Effort, Provider } from "./cli.js"
-import { FREE_TOOL_HEADROOM, ITERATIONS_PER_ACTION, MAX_FINISH_REFUSALS, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
+import { FRAME_DIR, FREE_TOOL_HEADROOM, ITERATIONS_PER_ACTION, MAX_FINISH_REFUSALS, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
+import { frameName } from "./film.js"
 import { log } from "./log.js"
 import * as ui from "./page.js"
 import { Direction, Submit } from "./page.js"
@@ -78,6 +79,7 @@ export interface InternDeps {
   model: string
   effort: Effort
   maxSteps: number
+  film: boolean
   focus?: string
 }
 
@@ -89,6 +91,9 @@ const INPUT_LOG_CAP = 100
 
 export async function runIntern(deps: InternDeps): Promise<InternOutcome> {
   await fs.mkdir(path.join(deps.outDir, SCREENSHOT_DIR), { recursive: true })
+  if (deps.film) {
+    await fs.mkdir(path.join(deps.outDir, FRAME_DIR), { recursive: true })
+  }
   const session = new InternSession(deps)
 
   const run = {
@@ -403,6 +408,19 @@ export class InternSession {
       return await fn()
     } catch (err) {
       return this.observe(`Action failed: ${(err as Error).message}`)
+    } finally {
+      await this.captureFrame()
+    }
+  }
+
+  /** One frame per action, for `--film`. Never fails a run. */
+  private async captureFrame(): Promise<void> {
+    if (!this.deps.film) {
+      return
+    }
+    const jpeg = await ui.screenshot(this.deps.page).catch(() => undefined)
+    if (jpeg) {
+      await fs.writeFile(path.join(this.deps.outDir, FRAME_DIR, frameName(this.actions)), jpeg)
     }
   }
 

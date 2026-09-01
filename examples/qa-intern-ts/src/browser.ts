@@ -1,8 +1,8 @@
 import { gunzipSync } from "node:zlib"
 import { Solari, SolariError } from "@solarisdk/browser"
 import type { Page } from "patchright-core"
-import { HTTP_NOT_FOUND, REPLAY_POLL_ATTEMPTS, REPLAY_POLL_MS, VIEWPORT } from "./constants.js"
-import { sleep } from "./http.js"
+import { HTTP_FORBIDDEN, HTTP_NOT_FOUND, NAV_TIMEOUT_MS, REPLAY_POLL_ATTEMPTS, REPLAY_POLL_MS, HTTP_UNAUTHORIZED, VIEWPORT } from "./constants.js"
+import { sleep, withoutPreviewToken } from "./http.js"
 import { log } from "./log.js"
 import { Collector } from "./signals.js"
 
@@ -21,6 +21,8 @@ export interface OpenedBrowser {
   page: Page
   collector: Collector
   sessionId: string
+  /** Open the target once so its cookie is set, before the intern gets a turn. */
+  prime(url: string): Promise<void>
   /** Releases the session and returns the replay once the upload lands. */
   close(): Promise<Replay | undefined>
 }
@@ -39,6 +41,14 @@ export async function openBrowser(apiKey: string): Promise<OpenedBrowser> {
     page,
     collector,
     sessionId: browser.id,
+    prime: async (url: string) => {
+      const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
+      const status = response?.status() ?? 0
+      if (status === HTTP_UNAUTHORIZED || status === HTTP_FORBIDDEN) {
+        throw new Error(`the preview gateway answered ${status} for ${withoutPreviewToken(url)} — the sandbox is serving, but the browser was not let in`)
+      }
+      await collector.drain()
+    },
     close: async () => {
       await browser.close()
       const replay = await fetchReplay(solari, browser.id)

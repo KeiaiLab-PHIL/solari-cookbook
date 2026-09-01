@@ -41,6 +41,7 @@ try {
       targetUrl: DEMO_BASE,
       serverLogs: async () => app.log(),
       outDir,
+      film: false,
       provider: "claude",
       model: "scripted",
       effort: "high",

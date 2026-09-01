@@ -77,6 +77,10 @@ export const HTTP_SERVER_ERROR = 500
 // Output
 export const OUTPUT_ROOT = "runs"
 export const SCREENSHOT_DIR = "screenshots"
+export const FRAME_DIR = "frames"
+export const FILM_NAME = "session.mp4"
+/** Slow enough to read what happened, short enough to watch. */
+export const FILM_FPS = 1.5
 export const REPLAY_NDJSON = "replay.ndjson"
 export const REPLAY_PAGE = "replay.html"
 export const RRWEB_PLAYER_CDN = "https://cdn.jsdelivr.net/npm/rrweb-player@1.0.0-alpha.4"

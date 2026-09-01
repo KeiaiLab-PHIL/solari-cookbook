@@ -11,6 +11,8 @@ export interface RunMeta {
   replay?: Replay
   /** Present when the events were saved next to the report. */
   replayPage?: string
+  /** Present with --film. */
+  film?: string
   startedAt: Date
   finishedAt: Date
   provider: string
@@ -39,6 +41,7 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
     `| Target | ${meta.target} (${meta.targetKind === "repo" ? "built and served in a Solari sandbox" : "live URL"}) |`,
     `| Browser session | \`${meta.sessionId}\` |`,
     replayRow,
+    ...(meta.film ? [`| Film | [${meta.film}](${meta.film}) — one frame per action |`] : []),
     ...(meta.sandboxId ? [`| Sandbox | \`${meta.sandboxId}\` |`] : []),
     `| Duration | ${formatDuration(meta.finishedAt.getTime() - meta.startedAt.getTime())} |`,
     `| Actions | ${outcome.actions}/${outcome.maxSteps} across ${u.turns} model turns |`,

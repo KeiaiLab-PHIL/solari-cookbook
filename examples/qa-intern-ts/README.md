@@ -50,6 +50,7 @@ npm start -- --repo https://github.com/you/app --setup "npm ci" --start "npm run
 | `--port <n>` | port the app listens on (default 3000) |
 | `--demo` | shorthand for the bundled demo app |
 | `--provider claude\|nvidia` | which brain drives; defaults to whichever key is set |
+| `--film` | record the session as an MP4 next to the report |
 | `--model`, `--effort`, `--max-steps`, `--focus`, `--out` | see `--help` |
 
 ## Two brains, one set of tools
@@ -196,6 +197,41 @@ So: three false positives, two of them mine, on the first contact with code
 the author did not write. That is the honest number, and it is why the tools
 put deterministic evidence next to every claim — a reviewer needs to be able
 to check.
+
+### And then it found a real one
+
+Flaskr is server-rendered and small, so the intern was pointed at something
+current instead: the [FastUI](https://github.com/pydantic/FastUI) demo —
+Pydantic's FastAPI backend with a React front end, with tables, modals,
+searchable selects, SSE and an auth flow.
+
+```bash
+npm start -- --repo https://github.com/pydantic/FastUI \
+  --setup "pip3 install --break-system-packages -q 'fastui[fastapi]' uvicorn httpx python-multipart pyjwt" \
+  --start "python3 -m uvicorn demo:app --host 0.0.0.0 --port 3000" --port 3000 --film
+```
+
+Thirty actions, five reports, one of them real and reproducible
+([`runs/live-fastui/`](runs/live-fastui), with [`session.mp4`](runs/live-fastui/session.mp4)):
+
+> **`GET /api/forms/search` returns 500.** `demo/forms.py` fetches
+> `https://restcountries.com/v3.1/name/{q}` with an httpx client and calls
+> `raise_for_status()`. That upstream now answers **301**, httpx does not
+> follow redirects by default, and the `HTTPStatusError` reaches the user as
+> an unhandled 500 — the searchable select in the forms demo is broken.
+
+Verified outside Solari: the same request against a local checkout returns the
+same 500, with `httpx.HTTPStatusError: Redirect response '301 Moved
+Permanently'` in the traceback. An upstream dependency changed and the demo
+has no handling for it.
+
+The other four reports are weaker, and the report says which is which: the
+"auth login page returns 500" claim does not reproduce (that endpoint answers
+200), the failing video is an external asset, and two are unverified usability
+observations. The intern also attached the 500 to the wrong control — it
+blamed table pagination when the failing request comes from the select's
+search. Its evidence was right and its story was wrong, which is the normal
+failure mode and the reason the signals are printed next to every claim.
 
 ## Solari, as measured
 

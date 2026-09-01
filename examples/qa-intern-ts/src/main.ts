@@ -4,10 +4,12 @@ import Anthropic from "@anthropic-ai/sdk"
 import OpenAI from "openai"
 import { openBrowser, type OpenedBrowser, type Replay } from "./browser.js"
 import { parseCli, type RunOptions } from "./cli.js"
+import { withoutPreviewToken } from "./http.js"
 import { loadDotEnv } from "./env.js"
 import { runIntern, type InternOutcome } from "./intern.js"
 import { log } from "./log.js"
 import { REPLAY_NDJSON, REPLAY_PAGE } from "./constants.js"
+import { encodeFilm } from "./film.js"
 import { parseEvents, renderReplayPage, renderReport, type RunMeta } from "./report.js"
 import { buildApp, type BuiltApp } from "./sandbox.js"
 
@@ -57,6 +59,7 @@ try {
   browser = await openBrowser(solariKey)
   const { outcome, replay } = await explore(browser, app, targetUrl, options, outDir)
 
+  const film = options.film ? await encodeFilm(outDir) : undefined
   const target = options.target.kind === "repo" ? `${options.target.repo}${options.target.path ? ` (${options.target.path})` : ""}` : targetUrl
   const meta: RunMeta = {
     target,
@@ -65,6 +68,7 @@ try {
     sandboxId: app?.sandboxId,
     replay,
     replayPage: await saveReplay(outDir, target, replay),
+    film,
     startedAt,
     finishedAt: new Date(),
     provider: options.provider,
@@ -92,12 +96,17 @@ async function explore(
   dir: string,
 ): Promise<{ outcome: InternOutcome; replay: Replay | undefined }> {
   try {
+    // The driver opens the target once: the preview cookie gets set here, and
+    // the intern never sees (or has to retype) the access token.
+    await session.prime(targetUrl)
+
     const outcome = await runIntern({
       page: session.page,
       collector: session.collector,
-      targetUrl,
+      targetUrl: withoutPreviewToken(targetUrl),
       serverLogs: built?.logs,
       outDir: dir,
+      film: opts.film,
       provider: opts.provider,
       model: opts.model,
       effort: opts.effort,

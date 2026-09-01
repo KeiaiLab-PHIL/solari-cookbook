@@ -33,6 +33,8 @@ export interface RunOptions {
   model: string
   effort: Effort
   maxSteps: number
+  /** Capture a frame after every action and encode an MP4 of the session. */
+  film: boolean
   /** Extra instructions for the intern, e.g. "focus on checkout". */
   focus?: string
   outRoot: string
@@ -57,6 +59,7 @@ Options:
   --model <id>         Default ${DEFAULT_MODEL} for claude, ${NVIDIA_DEFAULT_MODEL} for nvidia
   --effort <level>     ${EFFORTS.join("|")} (default ${DEFAULT_EFFORT}) — claude only
   --max-steps <n>      Action budget for the intern (default ${DEFAULT_MAX_STEPS})
+  --film               Record the session as an MP4 next to the report
   --focus <text>       Extra instructions for the intern
   --out <dir>          Where reports go (default ./${OUTPUT_ROOT})
   --help`
@@ -76,6 +79,7 @@ export function parseCli(argv: string[]): RunOptions {
       model: { type: "string" },
       effort: { type: "string", default: DEFAULT_EFFORT },
       "max-steps": { type: "string" },
+      film: { type: "boolean", default: false },
       focus: { type: "string" },
       out: { type: "string", default: OUTPUT_ROOT },
       help: { type: "boolean", default: false },
@@ -104,6 +108,7 @@ export function parseCli(argv: string[]): RunOptions {
     model: values.model ?? (provider === "nvidia" ? NVIDIA_DEFAULT_MODEL : DEFAULT_MODEL),
     effort,
     maxSteps,
+    film: values.film,
     focus: values.focus,
     outRoot: values.out,
   }
