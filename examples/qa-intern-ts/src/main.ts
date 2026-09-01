@@ -38,11 +38,15 @@ await fs.mkdir(outDir, { recursive: true })
 
 let app: BuiltApp | undefined
 let browser: OpenedBrowser | undefined
-process.once("SIGINT", async () => {
-  log.warn("interrupted — releasing the browser and the sandbox")
-  await Promise.allSettled([browser?.close(), app?.close()])
-  process.exit(EXIT_INTERRUPTED)
-})
+// A dropped pipe (`npm run demo | head`) kills the process too, and a leaked
+// sandbox both bills and eats the plan's concurrency limit.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.once(signal, async () => {
+    log.warn(`${signal} — releasing the browser and the sandbox`)
+    await Promise.allSettled([browser?.close(), app?.close()])
+    process.exit(EXIT_INTERRUPTED)
+  })
+}
 
 try {
   if (options.target.kind === "repo") {

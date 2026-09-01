@@ -105,6 +105,20 @@ Running it for real is what found the defects worth fixing, in this order:
 5. When a tool pushed back, the model answered in prose instead of calling a
    tool, and the NVIDIA loop treated that as the end of the session. A
    text-only turn now gets a bounded nudge instead of ending an unfinished run.
+6. A run that found six defects filed itself as *inconclusive*: `report_issue`
+   is free in actions but not in API calls, so the loop hit its iteration cap
+   before `finish`. The cap now scales with the action budget, and a run that
+   ends without `finish` says so and takes its verdict from the issues.
+7. Readiness was polled through the public preview URL from this machine. That
+   conflates the app with the gateway — when a leaked sandbox pushed the
+   account over its concurrency limit, the browser got a 401 and the intern
+   dutifully filed "app inaccessible". Readiness is now checked inside the
+   guest, the gateway gets its own short check with a message that names the
+   likely cause, and the process releases its VMs on SIGTERM and SIGHUP too
+   (a dropped pipe was what leaked the sandbox).
+8. The preview token kept ending up in committed reports — in a table cell,
+   then in the model's own prose. Redaction now runs once over the finished
+   document instead of field by field.
 
 ## Failure handling
 

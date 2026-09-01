@@ -5,7 +5,7 @@ import { z } from "zod"
 import { runClaude } from "./brain-claude.js"
 import { nvidiaCanSeeImages, runNvidia } from "./brain-nvidia.js"
 import type { Effort, Provider } from "./cli.js"
-import { EXTRA_ITERATIONS, MAX_FINISH_REFUSALS, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
+import { FREE_TOOL_HEADROOM, ITERATIONS_PER_ACTION, MAX_FINISH_REFUSALS, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
 import { log } from "./log.js"
 import * as ui from "./page.js"
 import { Direction, Submit } from "./page.js"
@@ -96,7 +96,7 @@ export async function runIntern(deps: InternDeps): Promise<InternOutcome> {
     firstMessage: `Target: ${deps.targetUrl}\n\nStart the session.`,
     tools: session.tools(),
     model: deps.model,
-    maxIterations: deps.maxSteps + EXTRA_ITERATIONS,
+    maxIterations: deps.maxSteps * ITERATIONS_PER_ACTION + FREE_TOOL_HEADROOM,
     observer: session.observer(),
     isDone: () => session.done(),
   }
@@ -291,7 +291,7 @@ export class InternSession {
         }
         const id = this.issues.length + 1
         const evidence = await this.saveShot(`issue-${id}.jpg`, await ui.screenshot(page).catch(() => undefined))
-        this.issues.push({ id, ...input, where: page.url(), evidence, signals: collector.recent(RECENT_SIGNALS) })
+        this.issues.push({ id, ...input, where: pageKey(page.url()), evidence, signals: collector.recent(RECENT_SIGNALS) })
         log.step(`issue #${id} [${input.severity}] ${input.title}`)
         return `Recorded issue #${id} (${input.severity}): ${input.title}`
       },
@@ -362,8 +362,8 @@ export class InternSession {
   outcome(): InternOutcome {
     return {
       issues: this.issues,
-      summary: this.summary || this.narration.at(-1) || "",
-      verdict: this.verdict,
+      summary: this.summary || this.unfinishedSummary(),
+      verdict: this.finished ? this.verdict : this.verdictFromIssues(),
       actions: this.actions,
       maxSteps: this.deps.maxSteps,
       visited: [...this.visited],
@@ -371,6 +371,18 @@ export class InternSession {
       narration: this.narration,
       stopReason: this.stopReason,
     }
+  }
+
+  /** The run ended without `finish`. Say so rather than passing off the last thing the model muttered. */
+  private unfinishedSummary(): string {
+    const tail = this.narration.at(-1)
+    const note = `The session ended without calling finish, after ${this.actions} of ${this.deps.maxSteps} actions.`
+    return tail ? `${note}\n\nLast words from the intern:\n\n${tail}` : note
+  }
+
+  /** Without a verdict from the intern, the issues speak for themselves. */
+  private verdictFromIssues(): Verdict {
+    return this.issues.some((issue) => issue.severity === "critical" || issue.severity === "major") ? "fail" : "inconclusive"
   }
 
   /** Budget and lifecycle guard shared by every action tool. */

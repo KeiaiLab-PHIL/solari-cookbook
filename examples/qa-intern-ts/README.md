@@ -65,10 +65,11 @@ Zod schema, a `run`. Each brain adapts them.
 | Prompt caching | yes, on the system prompt | none — NIM has no cache control, so every turn resends the state |
 | Effort | `output_config.effort` | not available |
 
-Default NIM model is `nvidia/nemotron-3.5-lightning-30b-a3b`. It was picked by
-measurement, not preference: the 100B+ models on NIM answer a single
-tool-calling turn in 100–126 s, which a 30-step loop cannot afford, while the
-lightning model answers in single-digit seconds and calls tools reliably.
+Default NIM model is `openai/gpt-oss-120b`, picked by measurement: it finds
+the most defects per run and still answers a turn in seconds.
+`nvidia/nemotron-3.5-lightning-30b-a3b` is the faster, weaker alternative.
+Most other 100B+ models on NIM take 100–126 s for a single tool-calling turn,
+which a 30-step loop cannot afford — check that before choosing one.
 
 ## How it works
 
@@ -129,28 +130,33 @@ replay. Last run: 8/8 checks in 15.7 s wall clock.
 ## What a report looks like
 
 [`runs/live-nvidia/report.md`](runs/live-nvidia/report.md) is a real run:
-`npm run demo` on NVIDIA NIM, 29 actions in 5 minutes, three defects
-reproduced, with [`replay.html`](runs/live-nvidia/replay.html) next to it.
+`npm run demo` on NVIDIA NIM, 30 actions in 2 minutes, seven defects
+reproduced — including the off-by-one count, which no collector can see —
+with [`replay.html`](runs/live-nvidia/replay.html) next to it.
 
 [`runs/sample/report.md`](runs/sample/report.md) is the same format produced
 by `test:intern` — the tools driven by a fixed script, no model at all.
 
 ### What the intern actually caught
 
-Six bugs are planted. Across four live runs on
-`nemotron-3.5-lightning-30b-a3b` the intern reported three or four of them,
-and the split is the interesting part:
+Six bugs are planted. Four leave a machine signal — a 404, a 500, an uncaught
+`TypeError`. Two leave nothing at all: the wrong note is deleted (B2), and the
+count says "3 notes" above a list of two (B5). Finding those means noticing
+that what the screen shows is not what should have happened.
 
-| | planted | found |
+| model | per run | B2 / B5 (no signal) |
 |---|---|---|
-| Leaves a machine signal (404, 500, uncaught TypeError) | B1, B3, B4, B6 | every run caught 3–4 of these |
-| Leaves no trace — needs judgment (wrong item deleted, count off by one) | B2, B5 | never caught |
+| `nemotron-3.5-lightning-30b-a3b` | 3–4 of 6 | never, in four runs |
+| `openai/gpt-oss-120b` | 4–5 of 6 | B2 in one run, B5 in another |
 
-That is the honest shape of the result: the deterministic collectors do the
-work they were built for, and a small fast model is good at reproducing what
-they surface but not at noticing that a list of two items is labelled "3
-notes". A larger model is the lever on the second row, and the same tools
-already run on one — `--provider claude`.
+Across four runs on the larger model every planted bug was caught at least
+once, and no single run caught all six — this is exploratory testing, and it
+is not deterministic. The signal-bearing four are found almost every time; the
+other two are where model capability shows up.
+
+It also reports defects nobody planted, and they are real: `/nonexistent`
+returns raw JSON instead of a page, a long note title overflows its delete
+button, and the count reads "1 notes". The saved run has the first two.
 
 ## Solari, as measured
 
@@ -180,6 +186,9 @@ Verified live end to end on NVIDIA NIM: sandbox build, recorded browser,
 signals, server log, the model loop, the report and the replay
 (`runs/live-nvidia/`). The Claude brain shares every one of those parts and is
 exercised by `test:intern`, but has not been run against Claude from this repo.
+
+Reports are redacted before they are written: a Solari preview URL carries its
+access token in the query string, and these files are meant to be committed.
 
 ## Layout
 

@@ -63,7 +63,7 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
     ...(outcome.visited.length ? outcome.visited.map((url) => `- ${url}`) : ["(none)"]),
     "",
   ]
-  return lines.join("\n")
+  return redact(lines.join("\n"))
 }
 
 function replayLinks(meta: RunMeta): string {
@@ -170,4 +170,13 @@ function fmt(n: number): string {
 
 function cell(text: string): string {
   return text.replace(/\|/g, "\\|").replace(/\n/g, " ")
+}
+
+/**
+ * Solari preview URLs carry their access token in the query string, and this
+ * report is meant to be committed and shared. Drop that one parameter and
+ * keep the rest — a failing request's query is often the diagnosis.
+ */
+export function redact(text: string): string {
+  return text.replace(/([?&])pt_token=[^&\s)"']*/g, (_match, sep: string) => (sep === "?" ? "?" : "")).replace(/\?(?=$|[\s)"'])/g, "")
 }

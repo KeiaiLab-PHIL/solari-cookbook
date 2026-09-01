@@ -20,7 +20,7 @@ Scripted sample: two defects reproduced.
 
 ### 1. [critical] Non-ASCII note title fails with HTTP 500 and no feedback
 
-*error · confidence high · at http://127.0.0.1:8765/*
+*error · confidence high · at http://127.0.0.1:8765*
 
 Steps to reproduce:
 

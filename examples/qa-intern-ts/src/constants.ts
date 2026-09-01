@@ -5,14 +5,25 @@ export const DEFAULT_MODEL = "claude-opus-5"
 export const DEFAULT_EFFORT = "high"
 export const DEFAULT_MAX_STEPS = 30
 export const MAX_TOKENS_PER_TURN = 16_000
-/** API calls the intern may spend beyond its action budget: reports, finish, sign-off. */
-export const EXTRA_ITERATIONS = 8
+/**
+ * The action budget is the real limit; the iteration cap is only a runaway
+ * guard. It has to leave room for the free tools — a run that reported six
+ * defects once hit the cap before it could call finish, and was filed as
+ * inconclusive with six majors in it.
+ */
+export const ITERATIONS_PER_ACTION = 2
+export const FREE_TOOL_HEADROOM = 12
 export const FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 // NVIDIA NIM — an OpenAI-compatible endpoint, so the loop is hand-written.
 export const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-/** Fast and reliable at tool calling. The 100B+ models here answer in ~2 min a call, which a 30-step loop cannot afford. */
-export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+/**
+ * Measured on the demo app, not assumed: this one finds five of the six
+ * planted bugs and answers a turn in seconds. `nemotron-3.5-lightning-30b-a3b`
+ * is the faster-to-first-token fallback but finds three; the 100B+ NIM models
+ * take 100-126s per tool-calling turn, which a 30-step loop cannot afford.
+ */
+export const NVIDIA_DEFAULT_MODEL = "openai/gpt-oss-120b"
 export const NVIDIA_MAX_TOKENS = 4096
 /** Measured: everything else on NIM rejects an image part or ignores it. */
 export const NVIDIA_VISION_MODELS = [
@@ -27,6 +38,9 @@ export const SANDBOX_IDLE_MS = 10 * 60_000
 export const SETUP_TIMEOUT_MS = 5 * 60_000
 export const SERVER_READY_TIMEOUT_MS = 90_000
 export const SERVER_POLL_MS = 1_500
+export const GUEST_POLL_MS = 700
+/** The gateway is usually instant; a slow one means a concurrency limit, not a slow app. */
+export const GATEWAY_READY_TIMEOUT_MS = 30_000
 export const WORK_ROOT = "/tmp/qa-intern"
 export const WORK_DIR = `${WORK_ROOT}/app`
 export const APP_LOG = `${WORK_ROOT}/app.log`

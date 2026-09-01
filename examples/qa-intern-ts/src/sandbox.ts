@@ -1,7 +1,7 @@
 import { SolariClient, type Sandbox } from "@solarisdk/sdk"
 import type { RepoTarget } from "./cli.js"
-import { APP_LOG, LOG_TAIL_CHARS, SANDBOX_IDLE_MS, SANDBOX_TEMPLATE, SERVER_READY_TIMEOUT_MS, SETUP_TIMEOUT_MS, WORK_DIR, WORK_ROOT } from "./constants.js"
-import { waitForHttp } from "./http.js"
+import { APP_LOG, GATEWAY_READY_TIMEOUT_MS, GUEST_POLL_MS, LOG_TAIL_CHARS, SANDBOX_IDLE_MS, SANDBOX_TEMPLATE, SERVER_READY_TIMEOUT_MS, SETUP_TIMEOUT_MS, WORK_DIR, WORK_ROOT } from "./constants.js"
+import { sleep, waitForHttp } from "./http.js"
 import { log } from "./log.js"
 
 /**
@@ -37,10 +37,15 @@ export async function buildApp(apiKey: string, target: RepoTarget): Promise<Buil
     }
     await startServer(sandbox, cwd, target.start)
 
+    // Readiness is checked inside the guest: the public preview URL is the
+    // gateway's business, and polling it here only muddies which of the two
+    // is broken.
+    await waitForGuest(sandbox, target.port)
+    log.step("app is up in the guest")
+
     const { url } = await sandbox.previewUrl(target.port)
-    log.step(`preview url ${url} — waiting for the app`)
-    await waitForHttp(url, SERVER_READY_TIMEOUT_MS, () => readLog(sandbox))
-    log.step("app is up")
+    await waitForHttp(url, GATEWAY_READY_TIMEOUT_MS, () => readLog(sandbox))
+    log.step(`preview url ready: ${url.split("?")[0]}`)
 
     return {
       url,
@@ -79,6 +84,21 @@ async function startServer(sandbox: Sandbox, cwd: string, start: string): Promis
   if (res.exitCode !== 0) {
     throw new Error(`could not start the app (exit ${res.exitCode}): ${res.stderr}`)
   }
+}
+
+/** Poll the port from inside the VM until the app answers, or give up with its log. */
+async function waitForGuest(sandbox: Sandbox, port: number): Promise<void> {
+  const deadline = Date.now() + SERVER_READY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const probe = await sandbox.commands.run("sh", {
+      args: ["-c", `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${port}/ || true`],
+    })
+    if (probe.stdout.trim().startsWith("2") || probe.stdout.trim().startsWith("3") || probe.stdout.trim() === "404") {
+      return
+    }
+    await sleep(GUEST_POLL_MS)
+  }
+  throw new Error(`the app never answered on port ${port} inside the sandbox:\n${await readLog(sandbox)}`)
 }
 
 async function readLog(sandbox: Sandbox): Promise<string> {

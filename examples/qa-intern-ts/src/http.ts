@@ -19,7 +19,10 @@ export async function waitForHttp(url: string, timeoutMs: number, diagnostics?: 
   }
 
   const extra = diagnostics ? `\n--- app log tail ---\n${await diagnostics()}` : ""
-  throw new Error(`${url} did not come up within ${timeoutMs / 1000}s${extra}`)
+  throw new Error(
+    `${url.split("?")[0]} did not serve within ${timeoutMs / 1000}s. ` +
+      `A 401 or timeout here is the preview gateway, not your app — usually a leftover session against the plan's concurrency limit.${extra}`,
+  )
 }
 
 async function probe(url: string): Promise<number> {
