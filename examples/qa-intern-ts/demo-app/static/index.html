@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Nebula Notes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Nebula Notes</h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/settings">Settings</a>
+      <a href="/about">About</a>
+      <a href="/changelog">Changelog</a>
+    </nav>
+  </header>
+  <main>
+    <section class="card">
+      <h2>New note</h2>
+      <form id="note-form">
+        <input id="title" name="title" placeholder="Title" autocomplete="off">
+        <textarea id="body" name="body" placeholder="Write something…" rows="3"></textarea>
+        <button type="submit" id="add">Add note</button>
+      </form>
+      <p id="feedback" class="feedback" aria-live="polite"></p>
+    </section>
+    <section class="card">
+      <h2 id="count">Loading…</h2>
+      <ul id="notes" class="notes"></ul>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

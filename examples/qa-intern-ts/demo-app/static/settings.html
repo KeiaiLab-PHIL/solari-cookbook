@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Settings — Nebula Notes</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Nebula Notes</h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/settings">Settings</a>
+      <a href="/about">About</a>
+      <a href="/changelog">Changelog</a>
+    </nav>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Settings</h2>
+      <label for="theme">Theme</label>
+      <select id="theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+      <button id="save">Save</button>
+      <p id="feedback" class="feedback" aria-live="polite"></p>
+    </section>
+  </main>
+  <script>
+    // B6: the select is #theme, not #theme-select — this throws on load and the
+    // Save handler below is never attached, so Save silently does nothing.
+    document.getElementById("theme-select").value = localStorage.getItem("theme") || "dark"
+    document.getElementById("save").addEventListener("click", () => {
+      localStorage.setItem("theme", document.getElementById("theme").value)
+      document.getElementById("feedback").textContent = "Saved."
+    })
+  </script>
+</body>
+</html>

@@ -33,6 +33,12 @@ past. Copy one into your project and change the parts you care about.
 | --- | --- | --- |
 | [desktop-computer-use-py](examples/desktop-computer-use-py) | Python | Screenshot, click, and type on a Linux GUI |
 
+### End to end
+
+| Example | Language | What it shows |
+| --- | --- | --- |
+| [qa-intern-ts](examples/qa-intern-ts) | TypeScript | Sandbox + recorded browser + Claude: an AI QA intern that builds your app, explores it, and files a report with a replay |
+
 ## Running an example
 
 Each directory is self-contained.

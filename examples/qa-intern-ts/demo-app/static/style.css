@@ -1,0 +1,66 @@
+:root {
+  --bg: #0f1117;
+  --card: #181b25;
+  --line: #2a2f3d;
+  --text: #e6e8ef;
+  --muted: #9aa0b4;
+  --accent: #7c9cff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 20px; margin: 0; }
+nav a { color: var(--muted); text-decoration: none; margin-left: 20px; }
+nav a:hover { color: var(--text); }
+main { max-width: 720px; margin: 32px auto; padding: 0 16px; display: grid; gap: 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; }
+.card h2 { margin: 0 0 12px; font-size: 18px; }
+form { display: grid; gap: 10px; }
+input, textarea, select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+button {
+  justify-self: start;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--accent);
+  color: #0b0d14;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+label { color: var(--muted); display: block; margin-bottom: 6px; }
+select { margin-bottom: 12px; }
+.feedback { min-height: 1.5em; color: var(--accent); margin: 8px 0 0; }
+.notes { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.notes li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "title delete" "body delete";
+  gap: 4px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.notes strong { grid-area: title; }
+.notes p { grid-area: body; margin: 0; color: var(--muted); }
+.notes .delete { grid-area: delete; align-self: center; background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.notes .delete:hover { color: #ff8a8a; border-color: #ff8a8a; }
