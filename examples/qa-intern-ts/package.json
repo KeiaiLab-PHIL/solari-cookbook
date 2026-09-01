@@ -7,8 +7,10 @@
     "demo": "tsx src/main.ts --demo",
     "demo-app": "python3 demo-app/server.py --port 3000",
     "typecheck": "tsc --noEmit",
+    "pretest:offline": "patchright-core install chromium-headless-shell",
     "test:offline": "tsx test/offline.ts",
     "test:live": "tsx test/live.ts",
+    "pretest:intern": "patchright-core install chromium-headless-shell",
     "test:intern": "tsx test/intern-offline.ts",
     "test": "npm run typecheck && npm run test:offline && npm run test:intern"
   },

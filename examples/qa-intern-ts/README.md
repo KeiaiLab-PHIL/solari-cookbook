@@ -94,13 +94,13 @@ npm run test:intern      # the intern's tools driven by a script; writes runs/sa
 npm run test:live        # the Solari half of a real run: sandbox build, recorded browser, replay
 ```
 
+The two offline tests need a Chromium; they install one themselves on first
+run (~95 MB, once). Set `QA_INTERN_CHROME` to use a browser you already have.
+
 `test:live` needs `SOLARI_API_KEY` and costs a few cents: it clones this repo
 into a sandbox, serves the demo app, drives it through the preview URL, reads
 the server log from inside the sandbox, releases everything and downloads the
 replay. Last run: 8/8 checks in 15.7 s wall clock.
-
-The offline test needs a Chromium for Patchright 1.62: `npx patchright install
-chromium-headless-shell`, or point `QA_INTERN_CHROME` at one you already have.
 
 ## What a report looks like
 
