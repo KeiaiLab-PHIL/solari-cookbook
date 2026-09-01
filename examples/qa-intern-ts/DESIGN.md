@@ -84,6 +84,8 @@ the system prompt, server-side refusal fallbacks.
 - The browser and the sandbox are released in `finally`, and on SIGINT.
 - A refusal from the model ends the loop; the report still renders with
   whatever was collected.
+- The replay link expires in 15 minutes, so the events are downloaded and
+  written next to the report with a player page.
 
 ## Testing
 
@@ -91,4 +93,8 @@ the system prompt, server-side refusal fallbacks.
 - `npm run test:offline` — the demo app plus a local headless Chromium drives
   the page driver and collectors end to end; asserts the machine-detectable
   planted bugs leave their evidence. No Solari, no Claude.
+- `npm run test:intern` — the intern's tools called in a scripted order:
+  dispatch, budget guard, evidence capture, report rendering. No model.
+- `npm run test:live` — the Solari half with the real products: build, browse,
+  signals, server log, release, replay download. No model.
 - `npm run demo` — the real thing: sandbox, browser, model, report.

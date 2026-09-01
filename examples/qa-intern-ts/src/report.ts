@@ -1,5 +1,5 @@
-import type { ReplayUrl } from "@solarisdk/browser"
-import { PRICES_PER_MTOK } from "./constants.js"
+import type { Replay } from "./browser.js"
+import { PRICES_PER_MTOK, RRWEB_PLAYER_CDN, VIEWPORT } from "./constants.js"
 import type { InternOutcome, Issue, Usage } from "./intern.js"
 import type { Signal } from "./signals.js"
 
@@ -8,7 +8,9 @@ export interface RunMeta {
   targetKind: "url" | "repo"
   sessionId: string
   sandboxId?: string
-  replay?: ReplayUrl
+  replay?: Replay
+  /** Present when the events were saved next to the report. */
+  replayPage?: string
   startedAt: Date
   finishedAt: Date
   model: string
@@ -23,9 +25,7 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
   const u = outcome.usage
   const tokens = `in ${fmt(u.input)} · cache read ${fmt(u.cacheRead)} · cache write ${fmt(u.cacheWrite)} · out ${fmt(u.output)}`
   const costNote = cost === undefined ? "" : ` (≈ $${cost.toFixed(2)})`
-  const replayRow = meta.replay
-    ? `| Replay | [open replay](${meta.replay.url}) — link valid ${Math.round(meta.replay.expiresInSeconds / SECONDS_PER_MINUTE)} min |`
-    : "| Replay | not available |"
+  const replayRow = meta.replay ? `| Replay | ${replayLinks(meta)} |` : "| Replay | not available |"
 
   const lines = [
     `# QA intern report — ${meta.target}`,
@@ -62,6 +62,54 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
     "",
   ]
   return lines.join("\n")
+}
+
+function replayLinks(meta: RunMeta): string {
+  const raw = `[raw rrweb NDJSON](${meta.replay!.url}) — link valid ${Math.round(meta.replay!.expiresInSeconds / SECONDS_PER_MINUTE)} min`
+  return meta.replayPage ? `[${meta.replayPage}](${meta.replayPage}) (open locally) · ${raw}` : raw
+}
+
+/** rrweb events as one line each; anything that is not JSON is skipped. */
+export function parseEvents(ndjson: Uint8Array): unknown[] {
+  const events: unknown[] = []
+  for (const line of new TextDecoder().decode(ndjson).split("\n")) {
+    if (!line.trim()) {
+      continue
+    }
+    try {
+      events.push(JSON.parse(line))
+    } catch {
+      // partial line at the end of the upload
+    }
+  }
+  return events
+}
+
+/** A self-contained page that plays the recording with rrweb-player from a CDN. */
+export function renderReplayPage(title: string, events: unknown[]): string {
+  const json = JSON.stringify(events).replace(/<\/script/gi, "<\\/script")
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Replay — ${escapeHtml(title)}</title>
+  <link rel="stylesheet" href="${RRWEB_PLAYER_CDN}/dist/style.css">
+  <script src="${RRWEB_PLAYER_CDN}/dist/index.js"></script>
+  <style>body { margin: 0; background: #111; display: grid; place-items: center; min-height: 100vh; }</style>
+</head>
+<body>
+  <div id="player"></div>
+  <script>
+    const events = ${json}
+    new rrwebPlayer({ target: document.getElementById("player"), props: { events, autoPlay: false, width: ${VIEWPORT.width}, height: ${VIEWPORT.height} } })
+  </script>
+</body>
+</html>
+`
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 function renderIssue(issue: Issue): string[] {

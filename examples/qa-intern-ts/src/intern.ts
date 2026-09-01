@@ -114,7 +114,7 @@ export async function runIntern(deps: InternDeps): Promise<InternOutcome> {
   return session.outcome()
 }
 
-class InternSession {
+export class InternSession {
   private actions = 0
   private finished = false
   private summary = ""

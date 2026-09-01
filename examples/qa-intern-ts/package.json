@@ -8,7 +8,9 @@
     "demo-app": "python3 demo-app/server.py --port 3000",
     "typecheck": "tsc --noEmit",
     "test:offline": "tsx test/offline.ts",
-    "test:live": "tsx test/live.ts"
+    "test:live": "tsx test/live.ts",
+    "test:intern": "tsx test/intern-offline.ts",
+    "test": "npm run typecheck && npm run test:offline && npm run test:intern"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

@@ -47,6 +47,9 @@ export const HTTP_SERVER_ERROR = 500
 // Output
 export const OUTPUT_ROOT = "runs"
 export const SCREENSHOT_DIR = "screenshots"
+export const REPLAY_NDJSON = "replay.ndjson"
+export const REPLAY_PAGE = "replay.html"
+export const RRWEB_PLAYER_CDN = "https://cdn.jsdelivr.net/npm/rrweb-player@1.0.0-alpha.4"
 
 /** `--demo` target: this repo's planted-bug app, served with nothing but python3. */
 export const DEMO_TARGET = {

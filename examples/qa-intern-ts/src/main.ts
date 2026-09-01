@@ -1,13 +1,13 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import Anthropic from "@anthropic-ai/sdk"
-import type { ReplayUrl } from "@solarisdk/browser"
-import { openBrowser, type OpenedBrowser } from "./browser.js"
+import { openBrowser, type OpenedBrowser, type Replay } from "./browser.js"
 import { parseCli, type RunOptions } from "./cli.js"
 import { loadDotEnv } from "./env.js"
 import { runIntern, type InternOutcome } from "./intern.js"
 import { log } from "./log.js"
-import { renderReport, type RunMeta } from "./report.js"
+import { REPLAY_NDJSON, REPLAY_PAGE } from "./constants.js"
+import { parseEvents, renderReplayPage, renderReport, type RunMeta } from "./report.js"
 import { buildApp, type BuiltApp } from "./sandbox.js"
 
 /**
@@ -52,12 +52,14 @@ try {
   browser = await openBrowser(solariKey)
   const { outcome, replay } = await explore(browser, app, targetUrl, options, outDir)
 
+  const target = options.target.kind === "repo" ? `${options.target.repo}${options.target.path ? ` (${options.target.path})` : ""}` : targetUrl
   const meta: RunMeta = {
-    target: options.target.kind === "repo" ? `${options.target.repo}${options.target.path ? ` (${options.target.path})` : ""}` : targetUrl,
+    target,
     targetKind: options.target.kind,
     sessionId: browser.sessionId,
     sandboxId: app?.sandboxId,
     replay,
+    replayPage: await saveReplay(outDir, target, replay),
     startedAt,
     finishedAt: new Date(),
     model: options.model,
@@ -80,7 +82,7 @@ async function explore(
   targetUrl: string,
   opts: RunOptions,
   dir: string,
-): Promise<{ outcome: InternOutcome; replay: ReplayUrl | undefined }> {
+): Promise<{ outcome: InternOutcome; replay: Replay | undefined }> {
   try {
     const outcome = await runIntern({
       page: session.page,
@@ -103,14 +105,24 @@ async function explore(
   }
 }
 
-function printOutcome(outcome: InternOutcome, reportPath: string, replay: ReplayUrl | undefined): void {
+function printOutcome(outcome: InternOutcome, reportPath: string, replay: Replay | undefined): void {
   console.log("")
   console.log(`Verdict: ${outcome.verdict.toUpperCase()} — ${outcome.issues.length} issue(s), ${outcome.actions}/${outcome.maxSteps} actions`)
   for (const issue of outcome.issues) {
     console.log(`  #${issue.id} [${issue.severity}] ${issue.title}`)
   }
   console.log(`Report:  ${reportPath}`)
-  console.log(`Replay:  ${replay?.url ?? "not available"}`)
+  console.log(`Replay:  ${replay?.ndjson ? path.join(path.dirname(reportPath), REPLAY_PAGE) : replay?.url ?? "not available"}`)
+}
+
+/** Write the events and a player page next to the report; returns the page's file name. */
+async function saveReplay(dir: string, title: string, replay: Replay | undefined): Promise<string | undefined> {
+  if (!replay?.ndjson) {
+    return undefined
+  }
+  await fs.writeFile(path.join(dir, REPLAY_NDJSON), replay.ndjson)
+  await fs.writeFile(path.join(dir, REPLAY_PAGE), renderReplayPage(title, parseEvents(replay.ndjson)))
+  return REPLAY_PAGE
 }
 
 function explain(err: unknown): void {
