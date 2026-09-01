@@ -18,6 +18,7 @@
     "@anthropic-ai/sdk": "^0.122.0",
     "@solarisdk/browser": "^0.1.2",
     "@solarisdk/sdk": "^0.1.2",
+    "openai": "^7.8.0",
     "patchright-core": "1.62.2",
     "zod": "^4.5.4"
   },

@@ -1,26 +1,29 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import Anthropic from "@anthropic-ai/sdk"
-import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod"
 import type { Page } from "patchright-core"
 import { z } from "zod"
-import type { Effort } from "./cli.js"
-import { EXTRA_ITERATIONS, FALLBACK_BETA, MAX_TOKENS_PER_TURN, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
+import { runClaude } from "./brain-claude.js"
+import { nvidiaCanSeeImages, runNvidia } from "./brain-nvidia.js"
+import type { Effort, Provider } from "./cli.js"
+import { EXTRA_ITERATIONS, MAX_FINISH_REFUSALS, RECENT_SIGNALS, SCREENSHOT_DIR, VIEWPORT } from "./constants.js"
 import { log } from "./log.js"
 import * as ui from "./page.js"
 import { Direction, Submit } from "./page.js"
 import { Collector, renderSignals, type Signal } from "./signals.js"
+import type { ToolOutput, ToolSpec, TurnObserver } from "./tool-spec.js"
 
 /**
- * The intern: a Claude tool-runner loop whose tools are the page driver.
+ * The intern: a model loop whose tools are the page driver.
  *
- *   ┌────────── Claude ──────────┐        ┌──── page driver ────┐
+ *   ┌────────── brain ───────────┐        ┌──── page driver ────┐
  *   │ look / click / type / …    │──────▶ │ Playwright on Solari │
  *   │ ◀── page state + signals   │        └─────────────────────┘
  *   │ report_issue → Issue[]     │
  *   │ finish → summary, verdict  │
  *   └────────────────────────────┘
  *
+ * The tools are provider-neutral (see tool-spec.ts). Claude runs them through
+ * the SDK's tool runner; NVIDIA NIM runs them through an OpenAI-style loop.
  * Every action tool returns the same shape (state + signals), so the model
  * always knows where it is, and the budget guard lives in one place.
  */
@@ -71,13 +74,12 @@ export interface InternDeps {
   /** Present in repo mode: the app's log inside the sandbox. */
   serverLogs?: () => Promise<string>
   outDir: string
+  provider: Provider
   model: string
   effort: Effort
   maxSteps: number
   focus?: string
 }
-
-type ToolResult = string | Extract<Anthropic.Beta.BetaToolResultBlockParam["content"], unknown[]>
 
 const SEVERITIES = ["critical", "major", "minor", "cosmetic"] as const
 const CONFIDENCES = ["high", "medium", "low"] as const
@@ -88,30 +90,31 @@ const INPUT_LOG_CAP = 100
 export async function runIntern(deps: InternDeps): Promise<InternOutcome> {
   await fs.mkdir(path.join(deps.outDir, SCREENSHOT_DIR), { recursive: true })
   const session = new InternSession(deps)
-  const client = new Anthropic()
 
-  const runner = client.beta.messages.toolRunner({
-    model: deps.model,
-    max_tokens: MAX_TOKENS_PER_TURN,
-    output_config: { effort: deps.effort },
-    // The system prompt and tool list never change, so they cache across every turn.
-    system: [{ type: "text", text: session.systemPrompt(), cache_control: { type: "ephemeral" } }],
-    cache_control: { type: "ephemeral" },
-    betas: [FALLBACK_BETA],
-    fallbacks: "default",
+  const run = {
+    systemPrompt: session.systemPrompt(),
+    firstMessage: `Target: ${deps.targetUrl}\n\nStart the session.`,
     tools: session.tools(),
-    messages: [{ role: "user", content: `Target: ${deps.targetUrl}\n\nStart the session.` }],
-    max_iterations: deps.maxSteps + EXTRA_ITERATIONS,
-  })
+    model: deps.model,
+    maxIterations: deps.maxSteps + EXTRA_ITERATIONS,
+    observer: session.observer(),
+    isDone: () => session.done(),
+  }
 
-  for await (const message of runner) {
-    session.track(message)
-    if (message.stop_reason === "refusal") {
-      log.warn("the model declined to continue")
-      break
-    }
+  if (deps.provider === "nvidia") {
+    await runNvidia(run, requireKey("NVIDIA_API_KEY"))
+  } else {
+    await runClaude(run, deps.effort)
   }
   return session.outcome()
+}
+
+function requireKey(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`${name} is not set`)
+  }
+  return value
 }
 
 export class InternSession {
@@ -122,26 +125,35 @@ export class InternSession {
   private stopReason?: string
   private readonly issues: Issue[] = []
   private readonly visited = new Set<string>()
+  /** Coverage is tracked on origin+path, so a preview URL's access token does not split one page into many. */
+  private readonly seenPages = new Set<string>()
+  private readonly reachablePages = new Set<string>()
+  private finishRefusals = 0
   private readonly narration: string[] = []
   private readonly usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, turns: 0 }
+  /** Screenshots are only offered when the chosen model can actually see one. */
+  private readonly canSeeImages: boolean
 
-  constructor(private readonly deps: InternDeps) {}
+  constructor(private readonly deps: InternDeps) {
+    this.canSeeImages = deps.provider === "claude" || nvidiaCanSeeImages(deps.model)
+  }
 
   systemPrompt(): string {
     const { maxSteps, focus, serverLogs } = this.deps
     const logsHint = serverLogs ? " When a request fails, server_logs shows the application's own log." : ""
+    const shotHint = this.canSeeImages ? " Use screenshot when something looks visually wrong or when text alone cannot settle it." : ""
     const lines = [
       "You are a QA engineer running an exploratory test session on a web app you have never seen before.",
       "",
       "Your hands are tools that drive a real Chrome browser. Every action returns the new page state — URL, visible text and the interactive elements with refs like [e12] — plus signals: console errors, uncaught exceptions and failed HTTP requests collected automatically since your previous action. Refs are reassigned on every state; only use refs from the latest state.",
       "",
-      "A defect is anything a real user would experience as broken or wrong: actions that do nothing or fail silently, errors, wrong or inconsistent data (counts, lists, labels), broken links, layout problems visible in a screenshot, missing or misleading feedback. Report each defect with report_issue as soon as you have reproduced it — one call per distinct defect. Report everything you are confident about and let severity and confidence carry the nuance; do not hold back findings because they seem small. Do not report anything you could not reproduce.",
+      "A defect is anything a real user would experience as broken or wrong: actions that do nothing or fail silently, errors, wrong or inconsistent data (counts, lists, labels), broken links, layout problems, missing or misleading feedback. Report each defect with report_issue as soon as you have reproduced it — one call per distinct defect. Report everything you are confident about and let severity and confidence carry the nuance; do not hold back findings because they seem small. Do not report anything you could not reproduce.",
       "",
-      `Method: start with look and check_links to map the app. Exercise each main flow end to end with realistic input, then with edge cases (empty, very long, non-ASCII, special characters). After every action, compare what the UI shows with what should have happened. Signals are leads, not conclusions: reproduce them and turn them into reports.${logsHint} Use screenshot when something looks visually wrong or when text alone cannot settle it.`,
+      `Method: start with look and check_links to map the app. Exercise each main flow end to end with realistic input, then with edge cases (empty, very long, non-ASCII, special characters). After every action, compare what the UI shows with what should have happened. Signals are leads, not conclusions: reproduce them and turn them into reports.${logsHint}${shotHint}`,
       "",
       `Budget: ${maxSteps} actions (report_issue and finish are free). When the budget is spent or the app is covered, call finish with an honest summary and a verdict: fail if any major or critical defect was found, pass if none, inconclusive if you could not test meaningfully.`,
       "",
-      "Narrate briefly: one short sentence between tool calls, no more.",
+      "Call one tool at a time and keep any commentary to a single short sentence.",
     ]
     if (focus) {
       lines.push("", `Focus from the requester: ${focus}`)
@@ -149,42 +161,42 @@ export class InternSession {
     return lines.join("\n")
   }
 
-  tools() {
+  tools(): ToolSpec[] {
     const { page, collector, serverLogs } = this.deps
 
-    const open = betaZodTool({
+    const open: ToolSpec<{ url: string }> = {
       name: "open",
       description: "Navigate to a URL — absolute, or a path relative to the current page. Returns the new page state.",
-      inputSchema: z.object({ url: z.string().describe("e.g. https://example.com/pricing or /pricing") }),
+      schema: z.object({ url: z.string().describe("e.g. https://example.com/pricing or /pricing") }),
       run: (input) =>
         this.act(async () => {
           await ui.navigate(page, input.url)
           return this.observe(`Opened ${input.url}.`)
         }),
-    })
+    }
 
-    const look = betaZodTool({
+    const look: ToolSpec<Record<string, never>> = {
       name: "look",
       description: "Re-read the current page state without acting. Use it for fresh refs or to check the result of a previous action.",
-      inputSchema: z.object({}),
+      schema: z.object({}),
       run: () => this.act(() => this.observe("Current page state.")),
-    })
+    }
 
-    const click = betaZodTool({
+    const click: ToolSpec<{ ref: string }> = {
       name: "click",
       description: "Click an element by its ref from the latest page state, e.g. e7.",
-      inputSchema: z.object({ ref: z.string().describe("Element ref such as e7") }),
+      schema: z.object({ ref: z.string().describe("Element ref such as e7") }),
       run: (input) =>
         this.act(async () => {
           await ui.click(page, input.ref)
           return this.observe(`Clicked ${input.ref}.`)
         }),
-    })
+    }
 
-    const type = betaZodTool({
+    const type: ToolSpec<{ ref: string; text: string; submit?: boolean }> = {
       name: "type",
       description: "Clear a field and type text into it. Set submit to true to press Enter afterwards.",
-      inputSchema: z.object({
+      schema: z.object({
         ref: z.string().describe("Ref of an input, textarea or editable element"),
         text: z.string(),
         submit: z.boolean().optional().describe("Press Enter after typing"),
@@ -194,69 +206,77 @@ export class InternSession {
           await ui.typeText(page, input.ref, input.text, input.submit ? Submit.Enter : Submit.None)
           return this.observe(`Typed into ${input.ref}.`)
         }),
-    })
+    }
 
-    const press = betaZodTool({
+    const press: ToolSpec<{ key: string }> = {
       name: "press",
       description: "Press a keyboard key on the focused element: Enter, Escape, Tab, ArrowDown, …",
-      inputSchema: z.object({ key: z.string() }),
+      schema: z.object({ key: z.string() }),
       run: (input) =>
         this.act(async () => {
           await ui.press(page, input.key)
           return this.observe(`Pressed ${input.key}.`)
         }),
-    })
+    }
 
-    const scroll = betaZodTool({
+    const scroll: ToolSpec<{ direction: "up" | "down" }> = {
       name: "scroll",
       description: "Scroll the page up or down by about one screen.",
-      inputSchema: z.object({ direction: z.enum(["up", "down"]) }),
+      schema: z.object({ direction: z.enum(["up", "down"]) }),
       run: (input) =>
         this.act(async () => {
           await ui.scroll(page, input.direction === "up" ? Direction.Up : Direction.Down)
           return this.observe(`Scrolled ${input.direction}.`)
         }),
-    })
+    }
 
-    const screenshot = betaZodTool({
+    const screenshot: ToolSpec<Record<string, never>> = {
       name: "screenshot",
       description: "Take a screenshot of the viewport to judge layout and visual state. Costs one action.",
-      inputSchema: z.object({}),
+      schema: z.object({}),
       run: () =>
         this.act(async () => {
           const jpeg = await ui.screenshot(page)
           await this.saveShot(`step-${this.actions}.jpg`, jpeg)
-          return [
-            { type: "text", text: `Screenshot of ${page.url()} (${VIEWPORT.width}x${VIEWPORT.height}).` },
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: jpeg.toString("base64") } },
-          ]
+          return { text: `Screenshot of ${page.url()} (${VIEWPORT.width}x${VIEWPORT.height}).`, jpegBase64: jpeg.toString("base64") }
         }),
-    })
+    }
 
-    const checkLinks = betaZodTool({
+    const checkLinks: ToolSpec<Record<string, never>> = {
       name: "check_links",
       description: "Request every same-origin link on the current page and list the ones that fail (4xx, 5xx or unreachable).",
-      inputSchema: z.object({}),
+      schema: z.object({}),
       run: () =>
         this.act(async () => {
           const results = await ui.checkLinks(page)
+          for (const result of results) {
+            this.reachablePages.add(pageKey(result.url))
+          }
           const broken = results.filter((r) => !r.ok)
           const detail = broken.length ? broken.map((r) => `- ${r.status || "unreachable"} ${r.url}`).join("\n") : "(none)"
           return `Checked ${results.length} same-origin link(s). Broken:\n${detail}`
         }),
-    })
+    }
 
-    const logsTool = betaZodTool({
+    const logsTool: ToolSpec<Record<string, never>> = {
       name: "server_logs",
       description: "Tail of the application's own log inside the sandbox. Stack traces land here when a request fails.",
-      inputSchema: z.object({}),
+      schema: z.object({}),
       run: () => this.act(async () => `Application log tail:\n${(await serverLogs!()) || "(empty)"}`),
-    })
+    }
 
-    const reportIssue = betaZodTool({
+    const reportIssue: ToolSpec<{
+      title: string
+      severity: Severity
+      confidence: Confidence
+      kind: IssueKind
+      steps: string[]
+      expected: string
+      actual: string
+    }> = {
       name: "report_issue",
       description: "Record a reproduced defect. One call per distinct defect, as soon as it is reproduced. A screenshot and the recent signals are attached automatically.",
-      inputSchema: z.object({
+      schema: z.object({
         title: z.string().describe("One line, what is wrong"),
         severity: z.enum(SEVERITIES),
         confidence: z.enum(CONFIDENCES),
@@ -275,50 +295,68 @@ export class InternSession {
         log.step(`issue #${id} [${input.severity}] ${input.title}`)
         return `Recorded issue #${id} (${input.severity}): ${input.title}`
       },
-    })
+    }
 
-    const finish = betaZodTool({
+    const finish: ToolSpec<{ summary: string; verdict: Verdict }> = {
       name: "finish",
       description: "End the session with a summary and a verdict. Call it when the budget is spent or the app is covered.",
-      inputSchema: z.object({ summary: z.string(), verdict: z.enum(VERDICTS) }),
-      run: (input) => {
+      schema: z.object({ summary: z.string(), verdict: z.enum(VERDICTS) }),
+      run: async (input) => {
         if (this.finished) {
           return "The session was already finished."
         }
+
+        // Machine gate: small models declare the app "covered" after a third of
+        // their budget. Refuse while pages the app itself links to are still
+        // unopened and there is budget left to open them.
+        const unvisited = [...this.reachablePages].filter((p) => !this.seenPages.has(p))
+        if (unvisited.length > 0 && this.actions < this.deps.maxSteps && this.finishRefusals < MAX_FINISH_REFUSALS) {
+          this.finishRefusals += 1
+          log.step(`finish refused — not opened yet: ${unvisited.map((u) => new URL(u).pathname || "/").join(", ")}`)
+          return `Not yet. These pages are linked from the app and you have not opened them: ${unvisited.join(", ")}. You have ${this.deps.maxSteps - this.actions} action(s) left — open each one, test what it does, then call finish.`
+        }
+
         this.finished = true
         this.summary = input.summary
         this.verdict = input.verdict
         log.step(`finish: ${input.verdict}`)
         return "Session closed. Reply with a one-sentence sign-off and do not call any more tools."
       },
-    })
-
-    const actionTools = [open, look, click, type, press, scroll, screenshot, checkLinks]
-    if (serverLogs) {
-      actionTools.push(logsTool)
     }
-    return [...actionTools, reportIssue, finish]
+
+    const actionTools: ToolSpec[] = [open, look, click, type, press, scroll, checkLinks] as ToolSpec[]
+    if (this.canSeeImages) {
+      actionTools.push(screenshot as ToolSpec)
+    }
+    if (serverLogs) {
+      actionTools.push(logsTool as ToolSpec)
+    }
+    return [...actionTools, reportIssue as ToolSpec, finish as ToolSpec]
   }
 
   /** Accumulate usage and echo the intern's narration and tool calls to the log. */
-  track(message: Anthropic.Beta.BetaMessage): void {
-    const u = message.usage
-    this.usage.turns += 1
-    this.usage.input += u.input_tokens
-    this.usage.output += u.output_tokens
-    this.usage.cacheRead += u.cache_read_input_tokens ?? 0
-    this.usage.cacheWrite += u.cache_creation_input_tokens ?? 0
-    this.stopReason = message.stop_reason ?? undefined
-
-    for (const block of message.content) {
-      if (block.type === "text" && block.text.trim()) {
-        this.narration.push(block.text.trim())
-        log.step(`intern: ${block.text.trim()}`)
-      }
-      if (block.type === "tool_use") {
-        log.step(`→ ${block.name} ${compact(block.input)}`)
-      }
+  observer(): TurnObserver {
+    return {
+      text: (text) => {
+        this.narration.push(text)
+        log.step(`intern: ${text}`)
+      },
+      toolCall: (name, input) => log.step(`→ ${name} ${compact(input)}`),
+      usage: (u) => {
+        this.usage.turns += 1
+        this.usage.input += u.input
+        this.usage.output += u.output
+        this.usage.cacheRead += u.cacheRead ?? 0
+        this.usage.cacheWrite += u.cacheWrite ?? 0
+      },
+      stop: (reason) => {
+        this.stopReason = reason
+      },
     }
+  }
+
+  done(): boolean {
+    return this.finished
   }
 
   outcome(): InternOutcome {
@@ -336,7 +374,7 @@ export class InternSession {
   }
 
   /** Budget and lifecycle guard shared by every action tool. */
-  private async act(fn: () => Promise<ToolResult>): Promise<ToolResult> {
+  private async act(fn: () => Promise<ToolOutput>): Promise<ToolOutput> {
     if (this.finished) {
       return "The session is finished. Do not call any more tools."
     }
@@ -358,6 +396,13 @@ export class InternSession {
   private async observe(note: string): Promise<string> {
     const state = await ui.snapshot(this.deps.page)
     this.visited.add(state.url)
+    this.seenPages.add(pageKey(state.url))
+    for (const element of state.elements) {
+      const link = element.href && sameOriginPage(element.href, state.url)
+      if (link) {
+        this.reachablePages.add(link)
+      }
+    }
 
     const signals = await this.deps.collector.drain()
     if (signals.length > 0) {
@@ -385,4 +430,30 @@ export class InternSession {
 function compact(input: unknown): string {
   const text = JSON.stringify(input) ?? ""
   return text.length > INPUT_LOG_CAP ? `${text.slice(0, INPUT_LOG_CAP)}…` : text
+}
+
+/** Origin + path: the identity of a page for coverage purposes. */
+function pageKey(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "") || parsed.origin
+  } catch {
+    return url
+  }
+}
+
+/** A same-origin page worth opening — not an asset, not an anchor on this page. */
+function sameOriginPage(href: string, currentUrl: string): string | undefined {
+  try {
+    const target = new URL(href, currentUrl)
+    if (target.origin !== new URL(currentUrl).origin) {
+      return undefined
+    }
+    if (/\.(css|js|png|jpe?g|gif|svg|ico|woff2?|map|json|txt|xml)$/i.test(target.pathname)) {
+      return undefined
+    }
+    return pageKey(target.toString())
+  } catch {
+    return undefined
+  }
 }

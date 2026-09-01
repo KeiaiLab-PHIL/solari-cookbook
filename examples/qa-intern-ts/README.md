@@ -1,9 +1,11 @@
 # qa-intern — an AI QA intern with Solari hands
 
 Give it a repo. It builds the app inside a Solari **sandbox**, clicks through it
-in a recorded Solari **browser** with Claude at the wheel, and hands you a
+in a recorded Solari **browser** with a model at the wheel, and hands you a
 report: reproduced defects with steps, evidence screenshots, the server-side
 traceback when there is one, and a replay of the whole session.
+
+Runs on **Claude** or on **NVIDIA NIM** — whichever key you have.
 
 ```
  --repo <git url>          Solari sandbox (microVM)
@@ -13,10 +15,10 @@ traceback when there is one, and a replay of the whole session.
                        └────────────┬─────────────┘
                                     │  (or --url, no sandbox)
  ┌──────────────┐  tools  ┌─────────▼────────────────┐
- │ Claude Opus 5│◀──────▶ │ Solari browser (Chrome)   │
- │ tool runner  │ look /  │ recording: on             │
- │              │ click / │ collectors: console.error │
- └──────┬───────┘ type …  │ pageerror · 4xx / 5xx     │
+ │ Claude  ·  or │◀──────▶ │ Solari browser (Chrome)   │
+ │ NVIDIA NIM    │ look /  │ recording: on             │
+ │ (same tools)  │ click / │ collectors: console.error │
+ └──────┬────────┘ type …  │ pageerror · 4xx / 5xx     │
         ▼                 └──────────────────────────┘
  runs/<ts>/report.md · screenshots/ · summary.json · replay link
 ```
@@ -28,7 +30,10 @@ cd examples/qa-intern-ts
 npm install
 
 export SOLARI_API_KEY=slr_live_...     # console.getsolari.com — the free plan covers a run
+
+# then either brain:
 export ANTHROPIC_API_KEY=sk-ant-...    # or `ant auth login`
+export NVIDIA_API_KEY=nvapi-...        # build.nvidia.com
 
 npm run demo                           # build demo-app/ in a sandbox and test it
 npm start -- --url https://staging.example.com
@@ -44,7 +49,26 @@ npm start -- --repo https://github.com/you/app --setup "npm ci" --start "npm run
 | `--start <cmd>` | serve command, `sh -c`, backgrounded — required with `--repo` |
 | `--port <n>` | port the app listens on (default 3000) |
 | `--demo` | shorthand for the bundled demo app |
+| `--provider claude\|nvidia` | which brain drives; defaults to whichever key is set |
 | `--model`, `--effort`, `--max-steps`, `--focus`, `--out` | see `--help` |
+
+## Two brains, one set of tools
+
+The tools are provider-neutral (`src/tool-spec.ts`): a name, a description, a
+Zod schema, a `run`. Each brain adapts them.
+
+| | Claude (`src/brain-claude.ts`) | NVIDIA NIM (`src/brain-nvidia.ts`) |
+|---|---|---|
+| API | Messages API, SDK tool runner drives the loop | OpenAI-compatible chat/completions, loop written by hand |
+| Tools | `betaZodTool` | Zod → JSON Schema → `tools: [{type:"function"}]` |
+| Screenshots | any model | only the vision models (`NVIDIA_VISION_MODELS`); otherwise the tool is not offered at all |
+| Prompt caching | yes, on the system prompt | none — NIM has no cache control, so every turn resends the state |
+| Effort | `output_config.effort` | not available |
+
+Default NIM model is `nvidia/nemotron-3.5-lightning-30b-a3b`. It was picked by
+measurement, not preference: the 100B+ models on NIM answer a single
+tool-calling turn in 100–126 s, which a 30-step loop cannot afford, while the
+lightning model answers in single-digit seconds and calls tools reliably.
 
 ## How it works
 
@@ -104,11 +128,29 @@ replay. Last run: 8/8 checks in 15.7 s wall clock.
 
 ## What a report looks like
 
-[`runs/sample/report.md`](runs/sample/report.md) is written by `test:intern`:
-the intern's tools driven by a fixed script (no model), reproducing two of the
-planted bugs. It shows the format — verdict, issues with steps and evidence,
-every machine-collected signal, pages visited. A real run adds the model's
-judgment, the replay, and the token/cost line.
+[`runs/live-nvidia/report.md`](runs/live-nvidia/report.md) is a real run:
+`npm run demo` on NVIDIA NIM, 29 actions in 5 minutes, three defects
+reproduced, with [`replay.html`](runs/live-nvidia/replay.html) next to it.
+
+[`runs/sample/report.md`](runs/sample/report.md) is the same format produced
+by `test:intern` — the tools driven by a fixed script, no model at all.
+
+### What the intern actually caught
+
+Six bugs are planted. Across four live runs on
+`nemotron-3.5-lightning-30b-a3b` the intern reported three or four of them,
+and the split is the interesting part:
+
+| | planted | found |
+|---|---|---|
+| Leaves a machine signal (404, 500, uncaught TypeError) | B1, B3, B4, B6 | every run caught 3–4 of these |
+| Leaves no trace — needs judgment (wrong item deleted, count off by one) | B2, B5 | never caught |
+
+That is the honest shape of the result: the deterministic collectors do the
+work they were built for, and a small fast model is good at reproducing what
+they surface but not at noticing that a list of two items is labelled "3
+notes". A larger model is the lever on the second row, and the same tools
+already run on one — `--provider claude`.
 
 ## Solari, as measured
 
@@ -134,10 +176,10 @@ judgment, the replay, and the token/cost line.
 
 ## Status
 
-Verified live: the build, the browser, the signals, the server log and the
-replay (`test:live`). The Claude loop is wired, typechecked and exercised by
-`test:intern`, but has not been run against a model from this repo yet —
-`npm run demo` is that run once Claude auth is set.
+Verified live end to end on NVIDIA NIM: sandbox build, recorded browser,
+signals, server log, the model loop, the report and the replay
+(`runs/live-nvidia/`). The Claude brain shares every one of those parts and is
+exercised by `test:intern`, but has not been run against Claude from this repo.
 
 ## Layout
 
@@ -148,6 +190,9 @@ src/browser.ts   recorded Solari session + signal collector
 src/signals.ts   console / pageerror / request signals
 src/page.ts      refs, snapshots, click/type/scroll, link sweep
 src/intern.ts    the Claude tool loop and its tools
+src/tool-spec.ts provider-neutral tool shape
+src/brain-claude.ts  Anthropic tool runner
+src/brain-nvidia.ts  OpenAI-compatible loop for NVIDIA NIM
 src/report.ts    markdown report, cost estimate, replay page
 src/cli.ts       arguments
 src/constants.ts every number that is not self-explanatory

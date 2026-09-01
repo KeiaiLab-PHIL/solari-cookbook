@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import Anthropic from "@anthropic-ai/sdk"
+import OpenAI from "openai"
 import { openBrowser, type OpenedBrowser, type Replay } from "./browser.js"
 import { parseCli, type RunOptions } from "./cli.js"
 import { loadDotEnv } from "./env.js"
@@ -62,12 +63,15 @@ try {
     replayPage: await saveReplay(outDir, target, replay),
     startedAt,
     finishedAt: new Date(),
+    provider: options.provider,
     model: options.model,
-    effort: options.effort,
+    effort: options.provider === "claude" ? options.effort : "",
   }
   const reportPath = path.join(outDir, "report.md")
   await fs.writeFile(reportPath, renderReport(meta, outcome, browser.collector.history()))
-  await fs.writeFile(path.join(outDir, "summary.json"), JSON.stringify({ meta, outcome, signals: browser.collector.history() }, null, 2))
+  // The replay bytes live in replay.ndjson; a Uint8Array in JSON is 20x its own size.
+  const { replay: _replay, ...leanMeta } = meta
+  await fs.writeFile(path.join(outDir, "summary.json"), JSON.stringify({ meta: leanMeta, outcome, signals: browser.collector.history() }, null, 2))
 
   printOutcome(outcome, reportPath, replay)
 } catch (err) {
@@ -90,6 +94,7 @@ async function explore(
       targetUrl,
       serverLogs: built?.logs,
       outDir: dir,
+      provider: opts.provider,
       model: opts.model,
       effort: opts.effort,
       maxSteps: opts.maxSteps,
@@ -127,7 +132,11 @@ async function saveReplay(dir: string, title: string, replay: Replay | undefined
 
 function explain(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError) {
-    console.error("Claude authentication failed — set ANTHROPIC_API_KEY or run `ant auth login`.")
+    console.error("Claude authentication failed — set ANTHROPIC_API_KEY, run `ant auth login`, or use --provider nvidia.")
+    return
+  }
+  if (err instanceof OpenAI.APIError) {
+    console.error(`NVIDIA NIM error ${err.status}: ${err.message}`)
     return
   }
   if (err instanceof Anthropic.APIError) {

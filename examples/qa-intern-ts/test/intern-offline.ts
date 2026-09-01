@@ -3,6 +3,7 @@
  *
  * Drives the intern's tools directly in the order a model would (open,
  * check_links, type, click, server_logs, screenshot, report_issue, finish)
+ * and checks the coverage gate that refuses an early finish
  * against the demo app in a local Chromium, then renders the report. What it
  * proves: tool dispatch, the budget guard, evidence capture and the report
  * format. What it does not prove: the model's judgment — that needs
@@ -16,12 +17,12 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { OUTPUT_ROOT, SCREENSHOT_DIR } from "../src/constants.js"
 import { InternSession, type InternDeps } from "../src/intern.js"
+import { isImageOutput, type ToolOutput } from "../src/tool-spec.js"
 import { renderReport } from "../src/report.js"
 import { checker, DEMO_BASE, openLocalBrowser, startDemoApp } from "./harness.js"
 
-type ToolOutput = string | Array<{ type: string; text?: string }>
-/** The runnable tools share a `run`, but their input types intersect into `never` — widen for scripting. */
-type AnyTool = { name: string; run: (input: unknown) => Promise<ToolOutput> | ToolOutput }
+/** Tool inputs are per-tool; widen them for scripting. */
+type AnyTool = { name: string; run: (input: unknown) => Promise<ToolOutput> }
 
 const outDir = path.join(OUTPUT_ROOT, "sample")
 const { ok, count } = checker()
@@ -40,6 +41,7 @@ try {
       targetUrl: DEMO_BASE,
       serverLogs: async () => app.log(),
       outDir,
+      provider: "claude",
       model: "scripted",
       effort: "high",
       maxSteps: 12,
@@ -51,7 +53,7 @@ try {
       assert.ok(tool, `tool ${name} exists`)
       return tool.run(input)
     }
-    const text = (out: ToolOutput): string => (typeof out === "string" ? out : out.map((b) => b.text ?? "[image]").join("\n"))
+    const text = (out: ToolOutput): string => (isImageOutput(out) ? out.text : out)
 
     const home = text(await call("open", { url: DEMO_BASE }))
     ok(home.includes("[e") && home.includes('"Add note"'), "open returns a page state with refs")
@@ -68,7 +70,7 @@ try {
     ok(text(await call("server_logs")).includes("UnicodeEncodeError"), "server_logs returns the traceback")
 
     const shot = await call("screenshot")
-    ok(Array.isArray(shot) && shot.some((b) => b.type === "image"), "screenshot returns an image block")
+    ok(isImageOutput(shot) && shot.jpegBase64.length > 0, "screenshot returns a JPEG the model can see")
 
     const first = text(
       await call("report_issue", {
@@ -95,15 +97,20 @@ try {
       actual: "TypeError on load (element #theme-select missing); Save has no effect",
     })
 
-    ok(text(await call("finish", { summary: "Scripted sample: two defects reproduced.", verdict: "fail" })).startsWith("Session closed"), "finish closes the session")
+    const refused = text(await call("finish", { summary: "Two defects reproduced.", verdict: "fail" }))
+    ok(refused.startsWith("Not yet.") && refused.includes("/about"), "finish is refused while linked pages are unopened")
+
+    await call("open", { url: "/about" })
+    await call("open", { url: "/changelog" })
+    ok(text(await call("finish", { summary: "Scripted sample: two defects reproduced.", verdict: "fail" })).startsWith("Session closed"), "finish closes the session once every page has been opened")
     ok(text(await call("look")).startsWith("The session is finished"), "actions are refused after finish")
 
     const outcome = session.outcome()
     ok(outcome.issues.length === 2 && outcome.issues.every((issue) => issue.evidence), "two issues, each with an evidence screenshot")
-    ok(outcome.actions === 7, `seven actions counted (got ${outcome.actions})`)
+    ok(outcome.actions === 9, `nine actions counted (got ${outcome.actions})`)
 
     const report = renderReport(
-      { target: DEMO_BASE, targetKind: "url", sessionId: "scripted-local", startedAt, finishedAt: new Date(), model: "scripted (no model)", effort: "n/a" },
+      { target: DEMO_BASE, targetKind: "url", sessionId: "scripted-local", startedAt, finishedAt: new Date(), provider: "scripted", model: "no model", effort: "" },
       outcome,
       local.collector.history(),
     )

@@ -8,8 +8,8 @@
 | Browser session | `scripted-local` |
 | Replay | not available |
 | Duration | 4s |
-| Actions | 7/12 across 0 model turns |
-| Model | scripted (no model), effort n/a |
+| Actions | 9/12 across 0 model turns |
+| Model | scripted · no model |
 | Tokens | in 0 · cache read 0 · cache write 0 · out 0 |
 
 ## Summary
@@ -64,8 +64,11 @@ Signals around this issue:
 |---|---|---|---|
 | 1 | http.error | http://127.0.0.1:8765/ | 500 POST http://127.0.0.1:8765/api/notes |
 | 2 | page.error | http://127.0.0.1:8765/settings | Uncaught TypeError: Cannot set properties of null (setting 'value') (http://127.0.0.1:8765/settings:33) |
+| 3 | http.error | http://127.0.0.1:8765/about | 404 GET http://127.0.0.1:8765/changelog |
 
 ## Pages visited
 
 - http://127.0.0.1:8765/
 - http://127.0.0.1:8765/settings
+- http://127.0.0.1:8765/about
+- http://127.0.0.1:8765/changelog

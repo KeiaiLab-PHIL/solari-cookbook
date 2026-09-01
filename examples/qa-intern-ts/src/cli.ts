@@ -1,8 +1,12 @@
 import { parseArgs } from "node:util"
-import { DEFAULT_EFFORT, DEFAULT_MAX_STEPS, DEFAULT_MODEL, DEFAULT_PORT, DEMO_TARGET, OUTPUT_ROOT } from "./constants.js"
+import { DEFAULT_EFFORT, DEFAULT_MAX_STEPS, DEFAULT_MODEL, DEFAULT_PORT, DEMO_TARGET, NVIDIA_DEFAULT_MODEL, OUTPUT_ROOT } from "./constants.js"
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max"
 const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"]
+
+/** Which API drives the intern. Claude speaks the Messages API; NVIDIA NIM is OpenAI-compatible. */
+export type Provider = "claude" | "nvidia"
+const PROVIDERS: readonly Provider[] = ["claude", "nvidia"]
 
 export interface UrlTarget {
   kind: "url"
@@ -25,6 +29,7 @@ export type Target = UrlTarget | RepoTarget
 
 export interface RunOptions {
   target: Target
+  provider: Provider
   model: string
   effort: Effort
   maxSteps: number
@@ -48,8 +53,9 @@ Options:
   --start <cmd>        Serve command (sh -c, backgrounded) — required with --repo
   --port <n>           Port the app listens on (default ${DEFAULT_PORT})
   --demo               Shorthand for the bundled demo-app target
-  --model <id>         Claude model (default ${DEFAULT_MODEL})
-  --effort <level>     ${EFFORTS.join("|")} (default ${DEFAULT_EFFORT})
+  --provider <name>    ${PROVIDERS.join("|")} (default: whichever API key is set)
+  --model <id>         Default ${DEFAULT_MODEL} for claude, ${NVIDIA_DEFAULT_MODEL} for nvidia
+  --effort <level>     ${EFFORTS.join("|")} (default ${DEFAULT_EFFORT}) — claude only
   --max-steps <n>      Action budget for the intern (default ${DEFAULT_MAX_STEPS})
   --focus <text>       Extra instructions for the intern
   --out <dir>          Where reports go (default ./${OUTPUT_ROOT})
@@ -66,7 +72,8 @@ export function parseCli(argv: string[]): RunOptions {
       start: { type: "string" },
       port: { type: "string" },
       demo: { type: "boolean", default: false },
-      model: { type: "string", default: DEFAULT_MODEL },
+      provider: { type: "string" },
+      model: { type: "string" },
       effort: { type: "string", default: DEFAULT_EFFORT },
       "max-steps": { type: "string" },
       focus: { type: "string" },
@@ -85,6 +92,7 @@ export function parseCli(argv: string[]): RunOptions {
     fail(`--effort must be one of ${EFFORTS.join(", ")}`)
   }
 
+  const provider = pickProvider(values.provider)
   const maxSteps = values["max-steps"] === undefined ? DEFAULT_MAX_STEPS : Number(values["max-steps"])
   if (!Number.isInteger(maxSteps) || maxSteps < 1) {
     fail("--max-steps must be a positive integer")
@@ -92,12 +100,27 @@ export function parseCli(argv: string[]): RunOptions {
 
   return {
     target: pickTarget(values),
-    model: values.model,
+    provider,
+    model: values.model ?? (provider === "nvidia" ? NVIDIA_DEFAULT_MODEL : DEFAULT_MODEL),
     effort,
     maxSteps,
     focus: values.focus,
     outRoot: values.out,
   }
+}
+
+/** Explicit flag wins; otherwise use whichever key the environment actually has. */
+function pickProvider(requested: string | undefined): Provider {
+  if (requested !== undefined) {
+    if (!PROVIDERS.includes(requested as Provider)) {
+      fail(`--provider must be one of ${PROVIDERS.join(", ")}`)
+    }
+    return requested as Provider
+  }
+  if (!process.env.ANTHROPIC_API_KEY && process.env.NVIDIA_API_KEY) {
+    return "nvidia"
+  }
+  return "claude"
 }
 
 interface RawTarget {

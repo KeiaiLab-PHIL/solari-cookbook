@@ -9,6 +9,18 @@ export const MAX_TOKENS_PER_TURN = 16_000
 export const EXTRA_ITERATIONS = 8
 export const FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
+// NVIDIA NIM — an OpenAI-compatible endpoint, so the loop is hand-written.
+export const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+/** Fast and reliable at tool calling. The 100B+ models here answer in ~2 min a call, which a 30-step loop cannot afford. */
+export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+export const NVIDIA_MAX_TOKENS = 4096
+/** Measured: everything else on NIM rejects an image part or ignores it. */
+export const NVIDIA_VISION_MODELS = [
+  "meta/llama-3.2-90b-vision-instruct",
+  "meta/llama-3.2-11b-vision-instruct",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+]
+
 // Solari sandbox (where the app under test is built and served)
 export const SANDBOX_TEMPLATE = "base"
 export const SANDBOX_IDLE_MS = 10 * 60_000
@@ -36,6 +48,8 @@ export const SCROLL_PX = 600
 export const REPLAY_POLL_ATTEMPTS = 10
 export const REPLAY_POLL_MS = 3_000
 export const RECENT_SIGNALS = 5
+/** How often `finish` may be refused for unvisited pages before the intern is let go. */
+export const MAX_FINISH_REFUSALS = 3
 
 // HTTP (from the spec — constants regardless of how obvious they look)
 export const HTTP_OK = 200

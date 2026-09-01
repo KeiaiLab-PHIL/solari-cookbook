@@ -13,7 +13,9 @@ export interface RunMeta {
   replayPage?: string
   startedAt: Date
   finishedAt: Date
+  provider: string
   model: string
+  /** Empty when the provider has no effort control. */
   effort: string
 }
 
@@ -40,7 +42,7 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
     ...(meta.sandboxId ? [`| Sandbox | \`${meta.sandboxId}\` |`] : []),
     `| Duration | ${formatDuration(meta.finishedAt.getTime() - meta.startedAt.getTime())} |`,
     `| Actions | ${outcome.actions}/${outcome.maxSteps} across ${u.turns} model turns |`,
-    `| Model | ${meta.model}, effort ${meta.effort} |`,
+    `| Model | ${meta.provider} · ${meta.model}${meta.effort ? `, effort ${meta.effort}` : ""} |`,
     `| Tokens | ${tokens}${costNote} |`,
     "",
     "## Summary",
@@ -65,8 +67,11 @@ export function renderReport(meta: RunMeta, outcome: InternOutcome, signals: rea
 }
 
 function replayLinks(meta: RunMeta): string {
-  const raw = `[raw rrweb NDJSON](${meta.replay!.url}) — link valid ${Math.round(meta.replay!.expiresInSeconds / SECONDS_PER_MINUTE)} min`
-  return meta.replayPage ? `[${meta.replayPage}](${meta.replayPage}) (open locally) · ${raw}` : raw
+  if (meta.replayPage) {
+    return `[${meta.replayPage}](${meta.replayPage}) — the events are saved next to this report`
+  }
+  // Only when the download failed: a presigned URL, so it dies quickly and should not be shared.
+  return `[raw rrweb NDJSON](${meta.replay!.url}) — presigned, expires in ${Math.round(meta.replay!.expiresInSeconds / SECONDS_PER_MINUTE)} min`
 }
 
 /** rrweb events as one line each; anything that is not JSON is skipped. */

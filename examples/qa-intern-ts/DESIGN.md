@@ -36,7 +36,8 @@ Layers talk only to the layer directly below them:
 | layer | module | knows about |
 |---|---|---|
 | orchestration | `main.ts` | the other modules, nothing else |
-| agent | `intern.ts` | the page driver, the collector, the Claude SDK |
+| agent | `intern.ts` | the page driver, the collector, the tool shape |
+| brains | `brain-claude.ts`, `brain-nvidia.ts` | one provider SDK each |
 | page driver | `page.ts` | Playwright selectors, DOM |
 | session drivers | `browser.ts`, `sandbox.ts` | the Solari SDKs |
 | evidence | `signals.ts`, `report.ts` | plain data |
@@ -74,6 +75,36 @@ the log is a complete bug report.
 tool inputs and the SDK runs the loop; the whole agent fits in one file that a
 reviewer can read top to bottom. Adaptive thinking, `effort`, prompt caching on
 the system prompt, server-side refusal fallbacks.
+
+**One tool set, two brains.** Tools are declared once as neutral specs
+(`tool-spec.ts`) and adapted per provider. NIM is OpenAI-compatible, not
+Anthropic-compatible, so there is no tool runner to borrow and the loop is
+written out: request, read `tool_calls`, execute, append `role: "tool"`,
+repeat. A tool message cannot carry an image, so a screenshot is appended as a
+separate user message — and only for models that can see one. Anything a brain
+cannot support is removed from the tool list rather than offered and ignored.
+
+**Coverage is a machine gate, not a plea.** Small models declare the app
+"covered" after a third of their budget: an early run stopped at 10 of 30
+actions and missed a page. `finish` now refuses while pages the app itself
+links to are unopened and budget remains, and names them. The same run then
+used 29 of 30 actions. This is deliberately a gate, not prompt wording —
+prompt wording is what failed.
+
+## What the live runs changed
+
+Running it for real is what found the defects worth fixing, in this order:
+
+1. A clean clone's first `npm test` failed — Patchright wants a Chromium build
+   no machine has. The tests install it themselves now.
+2. The report pasted a 2 KB presigned replay URL into a table meant to be
+   committed. A saved player page replaces it.
+3. `summary.json` serialised the replay's bytes as JSON: 60 KB became 1.3 MB.
+   The bytes already live in `replay.ndjson`.
+4. The intern quit at a third of its budget (see the coverage gate above).
+5. When a tool pushed back, the model answered in prose instead of calling a
+   tool, and the NVIDIA loop treated that as the end of the session. A
+   text-only turn now gets a bounded nudge instead of ending an unfinished run.
 
 ## Failure handling
 
